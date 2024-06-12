@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="pt-br">
+
+    <head>
+        <link rel="stylesheet" href="/css/jquery-ui.min.css">
+        <link rel="stylesheet" href="/css/bootstrap.min.css">
+        <script type="text/javascript" src="/js/jquery-3.3.1.min.js"></script>
+        <script src="https://kit.fontawesome.com/411ce7c4c6.js" crossorigin="anonymous"></script>
+        <script type="text/javascript" src="/js/jquery-ui.min.js"></script>
+
+        <script type="text/javascript">
+            let mediaRecorder;
+            let recordedBlobs;
+
+            let constraints = {
+                'video': true,
+                'audio': false
+            };
+
+
+            async function carregaSelectsDispositivos() {
+                let dispositivos = await navigator.mediaDevices.enumerateDevices();
+
+                const selectCamera = document.querySelector('#selectCamera');
+                const selectAudioEntrada = document.querySelector('#selectAudioInput');
+                const selectAudioSaida = document.querySelector('#selectAudioOutput');
+
+                for (let i in dispositivos) {
+                    let deviceInfo = dispositivos[i];
+                    let option = document.createElement('option');
+                    option.value = deviceInfo.deviceId;
+
+                    if (deviceInfo.kind === 'videoinput') {
+                        option.innerHTML = deviceInfo.label ? deviceInfo.label : `Camera ${selectCamera.length + 1}`;
+                        selectCamera.appendChild(option);
+                    } else if (deviceInfo.kind === 'audioinput') {
+                        option.innerHTML = deviceInfo.label ? deviceInfo.label : `Microfone ${selectAudioEntrada.length + 1}`;
+                        selectAudioEntrada.appendChild(option);
+                    } else if (deviceInfo.kind === 'audiooutput') {
+                        option.innerHTML = deviceInfo.label ? deviceInfo.label : `Speaker ${selectAudioSaida.length + 1}`;
+                        selectAudioSaida.appendChild(option)
+                    }
+                }
+            }
+
+            async function startStopStream(element) {
+                let videoElement = document.querySelector('video');
+
+                if(element.textContent.match(/Capturar/)){
+                    console.log("constraints => ", constraints);
+
+                    try{
+                        let stream = await navigator.mediaDevices.getUserMedia(constraints);
+                        videoElement.srcObject = stream;
+                        window.stream = stream;
+
+                        element.textContent = 'Parar captura';
+                        $('.fa-video').css('visibility', 'visible');
+                        $('#startStopRecord').prop('disabled', false);
+
+                    }catch (e) {
+                        console.log("Erro : ", e);
+                    }
+
+                }else{
+                    if(window.stream){
+                        const tracks = window.stream.getTracks();
+
+                        tracks.forEach(function(track) {
+                            track.stop();
+                        });
+
+                        window.stream = null;
+                        videoElement.srcObject = null;
+                        element.textContent = 'Capturar';
+                        $('#startStopRecord').prop('disabled', true);
+                        $('#downloadRecord').prop('disabled', true);
+                        $('#startStopRecord').html('Gravar');
+                    }
+                }
+            }
+
+            async function changeDispositivosStream(){
+                const selectCamera = document.querySelector('#selectCamera');
+                const selectAudioEntrada = document.querySelector('#selectAudioInput');
+
+                let deviceIdAudioEntrada = selectAudioEntrada.value;
+                let deviceIdCamera = selectCamera.value;
+                let mudouConstraint = false;
+
+                if(deviceIdAudioEntrada !== ''){
+                    mudouConstraint = true;
+                    constraints.audio =  {
+                        deviceId: deviceIdAudioEntrada
+                    }
+                }
+
+                if(deviceIdCamera !== ''){
+                    mudouConstraint = true;
+                    constraints.video = {
+                        deviceId: deviceIdCamera
+                    }
+                }
+
+                console.log("constraints changed => ", constraints, mudouConstraint);
+
+                if (window.stream && mudouConstraint) {
+                    window.stream.getTracks().forEach(track => {
+                        track.stop();
+                    });
+
+                    let btnCapturarStream = document.getElementById('showVideo');
+                    btnCapturarStream.innerText = 'Capturar';
+                    await startStopStream(btnCapturarStream);
+                }
+            }
+
+            function attachSinkId(element, sinkId) {
+                if (typeof element.sinkId !== 'undefined') {
+                    element.setSinkId(sinkId)
+                        .then(() => {
+                            console.log(`Success, audio output device attached: ${sinkId}`);
+                        })
+                        .catch(error => {
+                            let errorMessage = error;
+                            if (error.name === 'SecurityError') {
+                                errorMessage = `You need to use HTTPS for selecting audio output device: ${error}`;
+                            }
+                            console.error(errorMessage);
+                            document.querySelector('#selectAudioOutput').selectedIndex = 0;
+                        });
+                } else {
+                    console.warn('Browser does not support output device selection.');
+                }
+            }
+
+            function changeDispositivoSaidaStream(){
+                const selectAudioSaida = document.querySelector('#selectAudioOutput');
+                const audioDestination = selectAudioSaida.value;
+
+                attachSinkId(document.querySelector('video'), audioDestination);
+            }
+
+            function muteVideo(element){
+                if (element.className.match(/fa-video-slash/)) {
+                    window.stream.getAudioTracks().forEach(function (track) {
+                        track.enabled = true;
+                    });
+                    window.stream.getVideoTracks().forEach(function (track) {
+                        track.enabled = true;
+                    });
+                    $(element).removeClass('fa-video-slash').addClass('fa-video');
+
+                }else {
+                    window.stream.getAudioTracks().forEach(function (track) {
+                        track.enabled = false;
+                    });
+                    window.stream.getVideoTracks().forEach(function (track) {
+                        track.enabled = false;
+                    });
+                    $(element).removeClass('fa-video').addClass('fa-video-slash');
+                }
+            }
+
+            async function startStopRecordStream(element){
+                if(element.textContent.match(/Gravar/)){
+                    if(window.stream){
+                        recordedBlobs = [];
+                        let options = {mimeType: 'video/webm;codecs=vp9,opus'};
+
+                        try {
+                            mediaRecorder = new MediaRecorder(window.stream, options);
+                        }catch (e) {
+                            console.log('Erro : ', e);
+                            return;
+                        }
+
+                        mediaRecorder.ondataavailable = function (event) {
+                            if (event.data && event.data.size > 0) {
+                                recordedBlobs.push(event.data);
+                            }
+                        };
+                        mediaRecorder.start();
+                        element.textContent = 'Parar gravaçao';
+                        $('#downloadRecord').prop('disabled', true);
+                    }
+
+                }else{
+                    if(mediaRecorder){
+                        mediaRecorder.stop();
+                        element.textContent = 'Gravar';
+                        $("#downloadRecord").prop('disabled', false);
+                    }
+                }
+            }
+
+            async function downloadRecordStream(element){
+                if(recordedBlobs){
+                    const blob = new Blob(recordedBlobs, {type: 'video/webm'});
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = 'gravacao.webm';
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => {
+                         document.body.removeChild(a);
+                         window.URL.revokeObjectURL(url);
+                    }, 300);
+                }
+            }
+
+            $(function() {
+                carregaSelectsDispositivos();
+
+                navigator.mediaDevices.addEventListener('devicechange', event => {
+                    console.log("change device : ", event)
+                });
+
+            });
+
+        </script>
+    </head>
+
+    <body>
+        <h3 style="text-align: center; padding: 10px">WebRTC</h3>
+
+        <div class="container">
+
+            <div class="row" style="margin-top: 24px; margin-bottom: 20px">
+                <div class="col-sm">
+                    <label for="selectCamera">Câmera: </label>
+                    <select id="selectCamera" onchange="changeDispositivosStream();">
+                        <option value="">Selecione uma câmera</option>
+                    </select>
+                </div>
+
+                <div class="col-sm">
+                    <label for="selectCamera">Microfone: </label>
+                    <select id="selectAudioInput" onchange="changeDispositivosStream();">
+                        <option value="">Selecione um microfone</option>
+                    </select>
+                </div>
+
+                <div class="col-sm">
+                    <label for="selectCamera">Saídas: </label>
+                    <select id="selectAudioOutput" onchange="changeDispositivoSaidaStream();">
+                        <option value="">Selecione uma saída de áudio</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="row offset-2">
+                <i class="col-sm-1 fas fa-video" style="visibility: hidden; color: #1b1e21; font-size: 35px; margin-right: 10px; margin-top: 350px; cursor: pointer" onclick="muteVideo(this);"></i>
+                <video id="video" class="col-sm-7" style="background-color: black; height: 400px" autoplay></video>
+
+            </div>
+
+            <div class="row">
+                <button class="btn btn-success col-sm-2 offset-3" style="margin-top: 10px" id="showVideo" onclick="startStopStream(this);">Capturar</button>
+                <button class="btn col-sm-2" style="margin-top: 10px; margin-left: 70px" id="startStopRecord" onclick="startStopRecordStream(this);" disabled>Gravar</button>
+                <button class="btn col-sm-1" style="margin-top: 10px; margin-left: 10px" id="downloadRecord" onclick="downloadRecordStream(this);" disabled>Download</button>
+            </div>
+
+        </div>
+
+    </body>
+</html>

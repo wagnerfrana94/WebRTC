@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="pt-br">
+
+<head>
+    <link rel="stylesheet" href="/css/jquery-ui.min.css">
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+    <script type="text/javascript" src="/js/jquery-3.3.1.min.js"></script>
+    <script src="https://kit.fontawesome.com/411ce7c4c6.js" crossorigin="anonymous"></script>
+    <script type="text/javascript" src="/js/jquery-ui.min.js"></script>
+
+    <script type="text/javascript">
+        let constraints = {
+            'video': true,
+            'audio': false
+        };
+
+        let pc1;
+        let pc2;
+
+        const offerOptions = {
+            offerToReceiveAudio: 1,
+            offerToReceiveVideo: 1
+        };
+
+
+        async function startStreamLocal(element) {
+            let localVideoElement = document.getElementById('videoLocal');
+            element.disabled = true;
+
+            try {
+                let stream = await navigator.mediaDevices.getUserMedia(constraints);
+                localVideoElement.srcObject = stream;
+                window.localStream = stream;
+                $('#call').prop('disabled', false);
+
+            } catch (e) {
+                alert(`getUserMedia() error: ${e.name}`);
+            }
+        }
+
+        async function call(element) {
+            element.disabled = true;
+            $('#hangup').prop('disabled', false);
+            console.log('Starting call');
+
+            const videoTracks = window.localStream.getVideoTracks();
+            const audioTracks = window.localStream.getAudioTracks();
+
+            if (videoTracks.length > 0) {
+                console.log(`Using video device: ${videoTracks[0].label}`);
+            }
+            if (audioTracks.length > 0) {
+                console.log(`Using audio device: ${audioTracks[0].label}`);
+            }
+
+            pc1 = new RTCPeerConnection({});
+            console.log('Created local peer connection object pc1');
+            pc1.addEventListener('icecandidate', e => onIceCandidate(pc1, e));
+
+
+            pc2 = new RTCPeerConnection({});
+            console.log('Created remote peer connection object pc2');
+            pc2.addEventListener('icecandidate', e => onIceCandidate(pc2, e));
+
+
+            //Quando o ponto remoto adiciona uma faixa, essa função de retorno de chamada é executada.
+            // Para que possamos definir nosso elemento de vídeo para exibir o MediaStream
+            pc2.addEventListener('track', gotRemoteStream);
+
+            //Com esta linha, estamos adicionando nossas faixas de stream locais (áudio e vídeo)
+            // à lista de faixas enviadas pela rede.
+            window.localStream.getTracks().forEach(track => pc1.addTrack(track, window.localStream));
+            console.log('Added local stream to pc1');
+
+            try {
+                console.log('pc1 createOffer start');
+                const offer = await pc1.createOffer(offerOptions);
+                await onCreateOfferSuccess(offer);
+            } catch (e) {
+                console.log(e);
+            }
+        }
+
+        async function getOtherPc(pc) {
+            return (pc === pc1) ? pc2 : pc1;
+        }
+
+        async function onCreateOfferSuccess(desc) {
+            console.log(`Offer from pc1\n${desc.sdp}`);
+            console.log('pc1 setLocalDescription start');
+
+            try {
+                await pc1.setLocalDescription(desc);
+            } catch (e) {
+                console.log(e);
+            }
+
+            console.log('pc2 setRemoteDescription start');
+            try {
+                await pc2.setRemoteDescription(desc);
+            } catch (e) {
+                console.log(e);
+            }
+
+            console.log('pc2 createAnswer start');
+            try {
+                const answer = await pc2.createAnswer();
+                await onCreateAnswerSuccess(answer);
+            } catch (e) {
+                console.log(e);
+            }
+        }
+
+        async function onCreateAnswerSuccess(desc) {
+            console.log(`Answer from pc2:\n${desc.sdp}`);
+            console.log('pc2 setLocalDescription start');
+            try {
+                await pc2.setLocalDescription(desc);
+            } catch (e) {
+                console.log(e);
+            }
+
+            console.log('pc1 setRemoteDescription start');
+            try {
+                await pc1.setRemoteDescription(desc);
+            } catch (e) {
+                console.log(e);
+            }
+        }
+
+        async function onIceCandidate(pc, event) {
+            try {
+                let otherPc = await getOtherPc(pc);
+                if(event.candidate){
+                    await otherPc.addIceCandidate(event.candidate);
+                }
+
+            } catch (e) {
+                console.log(e);
+            }
+        }
+
+        function gotRemoteStream(e) {
+            let remoteVideo = document.getElementById('videoRemote');
+            if (remoteVideo.srcObject !== e.streams[0]) {
+                remoteVideo.srcObject = e.streams[0];
+                console.log('pc2 received remote stream');
+            }
+        }
+
+        async function hangup(element) {
+            console.log('Ending call');
+            pc1.close();
+            pc2.close();
+            pc1 = null;
+            pc2 = null;
+            element.disabled = true;
+            $('#call').prop('disabled', false);        }
+
+    </script>
+</head>
+
+<body>
+<h3 style="text-align: center; padding: 10px">WebRTC</h3>
+
+<div class="container">
+
+    <div class="row offset-1">
+        <video id="videoLocal" class="col-sm-5" style="background-color: black; height: 300px" autoplay></video>
+        <video id="videoRemote" class="offset-1 col-sm-5" style="background-color: black; height: 300px" autoplay></video>
+
+    </div>
+
+    <div class="row offset-1">
+        <button class="btn btn-success col-sm-1" style="margin-top: 10px" id="showVideo" onclick="startStreamLocal(this);">Iniciar</button>
+        <button class="btn col-sm-1" style="margin-top: 10px; margin-left: 150px" id="call" onclick="call(this);" disabled>Ligar</button>
+        <button class="btn col-sm-1" style="margin-top: 10px; margin-left: 10px" id="hangup" onclick="hangup(this);" disabled>Hangup</button>
+    </div>
+
+</div>
+
+</body>
+
+</html>
